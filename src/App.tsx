@@ -2,7 +2,6 @@ import { ChangeEvent, DragEvent, useEffect, useMemo, useRef, useState } from 're
 import { jsPDF } from 'jspdf'
 import html2canvas from 'html2canvas'
 import { renderAsync } from 'docx-preview'
-import { removeBackground } from '@imgly/background-removal'
 
 type Tab = 'convert' | 'images' | 'compress' | 'fonts' | 'background'
 type FileInfo = { file: File; url: string; width?: number; height?: number }
@@ -32,35 +31,23 @@ function removeSimpleBackground(source: HTMLImageElement) {
   context.drawImage(source, 0, 0)
   const image = context.getImageData(0, 0, canvas.width, canvas.height)
   const { data, width, height } = image
-  const samplePoints = [[0, 0], [width - 1, 0], [0, height - 1], [width - 1, height - 1], [Math.floor(width / 2), 0], [Math.floor(width / 2), height - 1]]
+  const samplePoints = [[0, 0], [width - 1, 0], [0, height - 1], [width - 1, height - 1]]
   const bg = samplePoints.reduce((acc, [x, y]) => { const index = (y * width + x) * 4; acc[0] += data[index]; acc[1] += data[index + 1]; acc[2] += data[index + 2]; return acc }, [0, 0, 0]).map(value => value / samplePoints.length)
   const visited = new Uint8Array(width * height)
   const queue: number[] = []
   const edge = (x: number, y: number) => { const index = y * width + x; if (!visited[index]) { visited[index] = 1; queue.push(index) } }
   for (let x = 0; x < width; x += 1) { edge(x, 0); edge(x, height - 1) }
   for (let y = 0; y < height; y += 1) { edge(0, y); edge(width - 1, y) }
-  const threshold = 78
+  const threshold = 42
   while (queue.length) {
     const index = queue.shift()!
     const x = index % width; const y = Math.floor(index / width); const offset = index * 4
     const red = data[offset]; const green = data[offset + 1]; const blue = data[offset + 2]
     const distance = Math.hypot(red - bg[0], green - bg[1], blue - bg[2])
     const saturation = Math.max(red, green, blue) - Math.min(red, green, blue)
-    if (distance > threshold || (saturation > 52 && distance > 24)) continue
+    if (distance > threshold || saturation > 32) continue
     data[offset + 3] = 0
     if (x > 0) edge(x - 1, y); if (x < width - 1) edge(x + 1, y); if (y > 0) edge(x, y - 1); if (y < height - 1) edge(x, y + 1)
-  }
-  // Clean up light, neutral backdrop pixels that are separated by anti-aliased edges.
-  // Keep the lower center of a portrait intact so white shirts stay white.
-  for (let y = 0; y < height; y += 1) {
-    for (let x = 0; x < width; x += 1) {
-      const offset = (y * width + x) * 4
-      const red = data[offset]; const green = data[offset + 1]; const blue = data[offset + 2]
-      const distance = Math.hypot(red - bg[0], green - bg[1], blue - bg[2])
-      const saturation = Math.max(red, green, blue) - Math.min(red, green, blue)
-      const keepPortraitClothing = x > width * 0.28 && x < width * 0.72 && y > height * 0.56
-      if (!keepPortraitClothing && distance < 72 && saturation < 48) data[offset + 3] = 0
-    }
   }
   context.putImageData(image, 0, 0)
   return canvas
@@ -122,22 +109,9 @@ function App() {
   const [bgColor, setBgColor] = useState('#eef4ff')
   const [keepTransparency, setKeepTransparency] = useState(false)
   const [backgroundPreviewUrl, setBackgroundPreviewUrl] = useState('')
-  const [segmentedPreviewUrl, setSegmentedPreviewUrl] = useState('')
-  const [segmentationLoading, setSegmentationLoading] = useState(false)
   const [backgroundView, setBackgroundView] = useState<'before' | 'after'>('after')
   const [text, setText] = useState('')
   const input = useRef<HTMLInputElement>(null)
-
-  useEffect(() => {
-    let cancelled = false
-    if (tab !== 'background' || !file || !file.file.type.startsWith('image/')) { setSegmentedPreviewUrl(''); setSegmentationLoading(false); return }
-    setSegmentationLoading(true)
-    removeBackground(file.file, { model: 'isnet', output: { format: 'image/png', quality: 1 } })
-      .then(blob => { if (!cancelled) setSegmentedPreviewUrl(URL.createObjectURL(blob)) })
-      .catch(() => { if (!cancelled) setSegmentedPreviewUrl(file.url) })
-      .finally(() => { if (!cancelled) setSegmentationLoading(false) })
-    return () => { cancelled = true }
-  }, [tab, file])
 
   useEffect(() => {
     let cancelled = false
@@ -152,9 +126,9 @@ function App() {
       context.fillStyle = bgColor; context.fillRect(0, 0, output.width, output.height); context.drawImage(cutout, 0, 0)
       setBackgroundPreviewUrl(output.toDataURL('image/jpeg', quality / 100))
     }
-    image.src = segmentedPreviewUrl || file.url
+    image.src = file.url
     return () => { cancelled = true }
-  }, [tab, file, segmentedPreviewUrl, bgColor, keepTransparency, quality])
+  }, [tab, file, bgColor, keepTransparency, quality])
 
   const notify = (message: string) => { setToast(message); window.setTimeout(() => setToast(''), 2600) }
 
@@ -204,9 +178,9 @@ function App() {
     }
     if (!file) { notify('Add a file first.'); return }
     if (tab === 'images' || tab === 'background') {
-      const image = new Image(); image.src = tab === 'background' && segmentedPreviewUrl ? segmentedPreviewUrl : file.url
+      const image = new Image(); image.src = file.url
       await new Promise(resolve => { image.onload = resolve })
-      const canvas = tab === 'background' ? (segmentedPreviewUrl ? (() => { const result = document.createElement('canvas'); result.width = image.naturalWidth; result.height = image.naturalHeight; result.getContext('2d')!.drawImage(image, 0, 0); return result })() : removeSimpleBackground(image)) : document.createElement('canvas')
+      const canvas = tab === 'background' ? removeSimpleBackground(image) : document.createElement('canvas')
       if (tab === 'images') { canvas.width = image.naturalWidth; canvas.height = image.naturalHeight }
       const ctx = canvas.getContext('2d')!
       if (tab === 'background' && !keepTransparency) { const output = document.createElement('canvas'); output.width = canvas.width; output.height = canvas.height; const outputContext = output.getContext('2d')!; outputContext.fillStyle = bgColor; outputContext.fillRect(0, 0, output.width, output.height); outputContext.drawImage(canvas, 0, 0); return output.toBlob(blob => { if (!blob) return; const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `${file.file.name.replace(/\.[^.]+$/, '')}-background.jpg`; a.click(); notify('Background replaced and exported.') }, 'image/jpeg', quality / 100) }
@@ -241,10 +215,10 @@ function App() {
           {tab === 'images' && <div className="panel"><label>Output format<div className="segmented"><button className={output === 'PNG' ? 'selected' : ''} onClick={() => setOutput('PNG')}>PNG</button><button className={output === 'JPEG' ? 'selected' : ''} onClick={() => setOutput('JPEG')}>JPEG</button></div></label><label>JPEG quality <span className="value">{quality}%</span><input type="range" min="10" max="100" value={quality} onChange={e => setQuality(Number(e.target.value))} /></label><div className="hint">Transparency is preserved in PNG. JPEG is lighter and universal.</div></div>}
           {tab === 'compress' && <div className="panel"><label>Mode<div className="segmented"><button className={compressMode === 'Compress' ? 'selected' : ''} onClick={() => setCompressMode('Compress')}>Compress</button><button className={compressMode === 'Upscale' ? 'selected' : ''} onClick={() => setCompressMode('Upscale')}>Upscale</button></div></label><label>Target download size<select value={target} onChange={e => setTarget(e.target.value)}><option>Under 200 KB</option><option>1 MB</option><option>2 MB</option><option>5 MB</option><option>10 MB</option></select></label><label>Quality <span className="value">{quality}%</span><input type="range" min="10" max="100" value={quality} onChange={e => setQuality(Number(e.target.value))} /></label><div className="size-meter"><div><span>Original</span><b>{prettySize(file?.file.size || 0)}</b></div><div className="meter"><span style={{ width: `${file ? Math.min(94, 28 + quality / 2) : 12}%` }} /></div><div><span>Estimated</span><b>{file ? prettySize(file.file.size * (compressMode === 'Compress' ? (1 - quality / 180) : 1.25)) : '—'}</b></div></div></div>}
           {tab === 'fonts' && <div className="panel font-panel"><div className="type-editor"><div><p className="kicker">TYPE YOUR COPY</p><strong style={{ fontFamily: font }}>Make the words feel like yours.</strong><span>Choose a font below, then write anything you want to preview.</span></div><textarea value={text} onChange={e => setText(e.target.value)} placeholder="Type or paste your copy here…" style={{ fontFamily: font }} /><button type="button" className="copy-button" onClick={() => { navigator.clipboard?.writeText(text); notify(text ? 'Copy copied to clipboard.' : 'Write something first.') }}>Copy text <span>↗</span></button></div><div className="search-row"><input placeholder="Search 50 fonts" value={fontQuery} onChange={e => setFontQuery(e.target.value)} /><span>⌕</span></div><div className="chips">{['All', 'Sans', 'Serif', 'Display', 'Mono'].map(category => <button type="button" className={fontCategory === category ? 'chip active' : 'chip'} key={category} onClick={() => setFontCategory(category)}>{category}</button>)}</div><div className="font-grid">{filteredFonts.map(([name, category]) => <button type="button" key={name} className={font === name ? 'font-card selected' : 'font-card'} onClick={() => setFont(name)} style={{ fontFamily: name }}><span>{name}</span><small>{category}</small></button>)}</div></div>}
-          {tab === 'background' && <div className="panel"><div className="background-panel-head"><div><p className="kicker">BACKGROUND COLOR</p><strong>Pick a clean, on-brand backdrop.</strong><span>FILO uses an in-browser AI cutout to keep the subject and edges sharp.</span></div></div><div className="color-line"><input type="color" value={bgColor} onChange={e => { setBgColor(e.target.value); setBackgroundView('after') }} /><input aria-label="Background hex" value={bgColor} onChange={e => { setBgColor(e.target.value); setBackgroundView('after') }} /><span className="swatch" style={{ background: bgColor }} /></div><div className="color-grid">{colors.map(color => <button aria-label={`Use ${color}`} key={color} className={bgColor === color ? 'color active' : 'color'} style={{ background: color }} onClick={() => { setBgColor(color); setBackgroundView('after') }} />)}</div><label className="checkbox"><input type="checkbox" checked={keepTransparency} onChange={e => { setKeepTransparency(e.target.checked); setBackgroundView('after') }} /> Keep transparent areas</label>{segmentationLoading && <div className="processing-note"><i /> Preparing a clean cutout…</div>}<div className="background-shortcuts"><button type="button" className="shortcut active">Add background</button><button type="button" className="shortcut">Edit cutout</button><button type="button" className="shortcut">Resize</button></div><div className="hint">Best for product shots, portraits, and passport photos with a clean backdrop.</div></div>}
+          {tab === 'background' && <div className="panel"><div className="background-panel-head"><div><p className="kicker">BACKGROUND COLOR</p><strong>Pick a clean, on-brand backdrop.</strong><span>FILO removes only the edge-connected neutral background, keeping the person untouched.</span></div></div><div className="color-line"><input type="color" value={bgColor} onChange={e => { setBgColor(e.target.value); setBackgroundView('after') }} /><input aria-label="Background hex" value={bgColor} onChange={e => { setBgColor(e.target.value); setBackgroundView('after') }} /><span className="swatch" style={{ background: bgColor }} /></div><div className="color-grid">{colors.map(color => <button aria-label={`Use ${color}`} key={color} className={bgColor === color ? 'color active' : 'color'} style={{ background: color }} onClick={() => { setBgColor(color); setBackgroundView('after') }} />)}</div><label className="checkbox"><input type="checkbox" checked={keepTransparency} onChange={e => { setKeepTransparency(e.target.checked); setBackgroundView('after') }} /> Keep transparent areas</label><div className="background-shortcuts"><button type="button" className="shortcut active">Add background</button><button type="button" className="shortcut">Edit cutout</button><button type="button" className="shortcut">Resize</button></div><div className="hint">Best for passport photos, portraits, and product shots with a clean solid backdrop.</div></div>}
           <div className="actionbar"><button className="ghost" onClick={reset}>Reset</button><button className="ghost" onClick={() => notify('Preview refreshed.')}>Preview <span>↗</span></button><button className="primary" onClick={download}>Download <span>↓</span></button></div>
         </div>
-        <aside className="preview-column"><div className="preview-head"><div><p className="kicker">LIVE PREVIEW</p><h3>{file ? 'Your file, in focus.' : 'Ready when you are.'}</h3></div><div className="preview-head-actions">{tab === 'background' && <div className="compare-toggle"><button type="button" className={backgroundView === 'before' ? 'selected' : ''} onClick={() => setBackgroundView('before')}>Before</button><button type="button" className={backgroundView === 'after' ? 'selected' : ''} onClick={() => setBackgroundView('after')}>After</button></div>}<span className="live-dot"><i /> Live</span></div></div><div className={file ? 'preview-canvas has-file' : 'preview-canvas'}>{file ? (file.file.type.startsWith('image/') ? <img src={tab === 'background' && backgroundPreviewUrl && backgroundView === 'after' ? backgroundPreviewUrl : (tab === 'background' && segmentedPreviewUrl ? segmentedPreviewUrl : file.url)} alt="Uploaded preview" /> : <div className="file-preview"><div className="file-glyph">{file.file.name.toLowerCase().endsWith('pdf') ? 'PDF' : 'DOC'}</div><strong>{file.file.name}</strong><span>{prettySize(file.file.size)} · {file.file.type || 'file'}</span></div>) : <div className="empty-preview"><div className="empty-mark">✦</div><strong>Drop a file to preview it</strong><span>Your result will appear here as soon as you add a file.</span></div>}</div><div className="preview-foot"><span>OUTPUT</span><b>{tab === 'background' ? (keepTransparency ? 'PNG' : 'JPEG') : output}</b><span className="quality-pill">{quality}% quality</span></div></aside>
+        <aside className="preview-column"><div className="preview-head"><div><p className="kicker">LIVE PREVIEW</p><h3>{file ? 'Your file, in focus.' : 'Ready when you are.'}</h3></div><div className="preview-head-actions">{tab === 'background' && <div className="compare-toggle"><button type="button" className={backgroundView === 'before' ? 'selected' : ''} onClick={() => setBackgroundView('before')}>Before</button><button type="button" className={backgroundView === 'after' ? 'selected' : ''} onClick={() => setBackgroundView('after')}>After</button></div>}<span className="live-dot"><i /> Live</span></div></div><div className={file ? 'preview-canvas has-file' : 'preview-canvas'}>{file ? (file.file.type.startsWith('image/') ? <img src={tab === 'background' && backgroundPreviewUrl && backgroundView === 'after' ? backgroundPreviewUrl : file.url} alt="Uploaded preview" /> : <div className="file-preview"><div className="file-glyph">{file.file.name.toLowerCase().endsWith('pdf') ? 'PDF' : 'DOC'}</div><strong>{file.file.name}</strong><span>{prettySize(file.file.size)} · {file.file.type || 'file'}</span></div>) : <div className="empty-preview"><div className="empty-mark">✦</div><strong>Drop a file to preview it</strong><span>Your result will appear here as soon as you add a file.</span></div>}</div><div className="preview-foot"><span>OUTPUT</span><b>{tab === 'background' ? (keepTransparency ? 'PNG' : 'JPEG') : output}</b><span className="quality-pill">{quality}% quality</span></div></aside>
       </section>
 
       <section className="trust-row"><span><b>50 MB</b> max file size</span><span><b>30+</b> formats supported</span><span><b>100%</b> in-browser processing</span><span><b>0</b> uploads to servers</span></section>
