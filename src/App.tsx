@@ -38,14 +38,28 @@ function removeSimpleBackground(source: HTMLImageElement) {
   const edge = (x: number, y: number) => { const index = y * width + x; if (!visited[index]) { visited[index] = 1; queue.push(index) } }
   for (let x = 0; x < width; x += 1) { edge(x, 0); edge(x, height - 1) }
   for (let y = 0; y < height; y += 1) { edge(0, y); edge(width - 1, y) }
-  const threshold = 68
+  const threshold = 78
   while (queue.length) {
     const index = queue.shift()!
     const x = index % width; const y = Math.floor(index / width); const offset = index * 4
-    const distance = Math.hypot(data[offset] - bg[0], data[offset + 1] - bg[1], data[offset + 2] - bg[2])
-    if (distance > threshold) continue
+    const red = data[offset]; const green = data[offset + 1]; const blue = data[offset + 2]
+    const distance = Math.hypot(red - bg[0], green - bg[1], blue - bg[2])
+    const saturation = Math.max(red, green, blue) - Math.min(red, green, blue)
+    if (distance > threshold || (saturation > 52 && distance > 24)) continue
     data[offset + 3] = 0
     if (x > 0) edge(x - 1, y); if (x < width - 1) edge(x + 1, y); if (y > 0) edge(x, y - 1); if (y < height - 1) edge(x, y + 1)
+  }
+  // Clean up light, neutral backdrop pixels that are separated by anti-aliased edges.
+  // Keep the lower center of a portrait intact so white shirts stay white.
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < width; x += 1) {
+      const offset = (y * width + x) * 4
+      const red = data[offset]; const green = data[offset + 1]; const blue = data[offset + 2]
+      const distance = Math.hypot(red - bg[0], green - bg[1], blue - bg[2])
+      const saturation = Math.max(red, green, blue) - Math.min(red, green, blue)
+      const keepPortraitClothing = x > width * 0.28 && x < width * 0.72 && y > height * 0.56
+      if (!keepPortraitClothing && distance < 72 && saturation < 48) data[offset + 3] = 0
+    }
   }
   context.putImageData(image, 0, 0)
   return canvas
