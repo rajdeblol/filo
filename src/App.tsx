@@ -31,8 +31,11 @@ function removeSimpleBackground(source: HTMLImageElement) {
   context.drawImage(source, 0, 0)
   const image = context.getImageData(0, 0, canvas.width, canvas.height)
   const { data, width, height } = image
-  const samplePoints = [[0, 0], [width - 1, 0], [0, height - 1], [width - 1, height - 1]]
-  const bg = samplePoints.reduce((acc, [x, y]) => { const index = (y * width + x) * 4; acc[0] += data[index]; acc[1] += data[index + 1]; acc[2] += data[index + 2]; return acc }, [0, 0, 0]).map(value => value / samplePoints.length)
+  const borderBins = new Map<string, { count: number; rgb: number[] }>()
+  const sample = (x: number, y: number) => { const index = (y * width + x) * 4; const rgb = [data[index], data[index + 1], data[index + 2]]; const key = rgb.map(value => Math.floor(value / 16)).join(':'); const current = borderBins.get(key); borderBins.set(key, current ? { count: current.count + 1, rgb: current.rgb } : { count: 1, rgb }) }
+  for (let x = 0; x < width; x += 3) { sample(x, 0); sample(x, height - 1) }
+  for (let y = 0; y < height; y += 3) { sample(0, y); sample(width - 1, y) }
+  const bg = [...borderBins.values()].sort((a, b) => b.count - a.count)[0]?.rgb || [255, 255, 255]
   const backgroundSaturation = Math.max(...bg) - Math.min(...bg)
   const visited = new Uint8Array(width * height)
   const queue: number[] = []
