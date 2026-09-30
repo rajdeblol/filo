@@ -33,19 +33,20 @@ function removeSimpleBackground(source: HTMLImageElement) {
   const { data, width, height } = image
   const samplePoints = [[0, 0], [width - 1, 0], [0, height - 1], [width - 1, height - 1]]
   const bg = samplePoints.reduce((acc, [x, y]) => { const index = (y * width + x) * 4; acc[0] += data[index]; acc[1] += data[index + 1]; acc[2] += data[index + 2]; return acc }, [0, 0, 0]).map(value => value / samplePoints.length)
+  const backgroundSaturation = Math.max(...bg) - Math.min(...bg)
   const visited = new Uint8Array(width * height)
   const queue: number[] = []
   const edge = (x: number, y: number) => { const index = y * width + x; if (!visited[index]) { visited[index] = 1; queue.push(index) } }
   for (let x = 0; x < width; x += 1) { edge(x, 0); edge(x, height - 1) }
   for (let y = 0; y < height; y += 1) { edge(0, y); edge(width - 1, y) }
-  const threshold = 42
+  const threshold = 65
   while (queue.length) {
     const index = queue.shift()!
     const x = index % width; const y = Math.floor(index / width); const offset = index * 4
     const red = data[offset]; const green = data[offset + 1]; const blue = data[offset + 2]
     const distance = Math.hypot(red - bg[0], green - bg[1], blue - bg[2])
     const saturation = Math.max(red, green, blue) - Math.min(red, green, blue)
-    if (distance > threshold || saturation > 32) continue
+    if (distance > threshold || Math.abs(saturation - backgroundSaturation) > 35) continue
     data[offset + 3] = 0
     if (x > 0) edge(x - 1, y); if (x < width - 1) edge(x + 1, y); if (y > 0) edge(x, y - 1); if (y < height - 1) edge(x, y + 1)
   }
