@@ -134,7 +134,7 @@ function App() {
     setSegmentationLoading(true)
     removeBackground(file.file, { model: 'isnet_quint8', output: { format: 'image/png' } })
       .then(blob => { if (!cancelled) setSegmentedPreviewUrl(URL.createObjectURL(blob)) })
-      .catch(() => { if (!cancelled) setSegmentedPreviewUrl('') })
+      .catch(() => { if (!cancelled) setSegmentedPreviewUrl(file.url) })
       .finally(() => { if (!cancelled) setSegmentationLoading(false) })
     return () => { cancelled = true }
   }, [tab, file])
