@@ -1,4 +1,4 @@
-import { ChangeEvent, DragEvent, useMemo, useRef, useState } from 'react'
+import { ChangeEvent, DragEvent, useEffect, useMemo, useRef, useState } from 'react'
 import { jsPDF } from 'jspdf'
 import html2canvas from 'html2canvas'
 import { renderAsync } from 'docx-preview'
@@ -93,8 +93,26 @@ function App() {
   const [compressMode, setCompressMode] = useState<'Compress' | 'Upscale'>('Compress')
   const [bgColor, setBgColor] = useState('#eef4ff')
   const [keepTransparency, setKeepTransparency] = useState(false)
+  const [backgroundPreviewUrl, setBackgroundPreviewUrl] = useState('')
   const [text, setText] = useState('')
   const input = useRef<HTMLInputElement>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    if (tab !== 'background' || !file || !file.file.type.startsWith('image/')) { setBackgroundPreviewUrl(''); return }
+    const image = new Image()
+    image.onload = () => {
+      if (cancelled) return
+      const cutout = removeSimpleBackground(image)
+      if (keepTransparency) { setBackgroundPreviewUrl(cutout.toDataURL('image/png')); return }
+      const output = document.createElement('canvas'); output.width = cutout.width; output.height = cutout.height
+      const context = output.getContext('2d')!
+      context.fillStyle = bgColor; context.fillRect(0, 0, output.width, output.height); context.drawImage(cutout, 0, 0)
+      setBackgroundPreviewUrl(output.toDataURL('image/jpeg', quality / 100))
+    }
+    image.src = file.url
+    return () => { cancelled = true }
+  }, [tab, file, bgColor, keepTransparency, quality])
 
   const notify = (message: string) => { setToast(message); window.setTimeout(() => setToast(''), 2600) }
 
@@ -184,7 +202,7 @@ function App() {
           {tab === 'background' && <div className="panel"><label>Solid fill color<div className="color-line"><input type="color" value={bgColor} onChange={e => setBgColor(e.target.value)} /><input value={bgColor} onChange={e => setBgColor(e.target.value)} /><span className="swatch" style={{ background: bgColor }} /></div></label><div className="color-grid">{colors.map(color => <button aria-label={`Use ${color}`} key={color} className={bgColor === color ? 'color active' : 'color'} style={{ background: color }} onClick={() => setBgColor(color)} />)}</div><label className="checkbox"><input type="checkbox" checked={keepTransparency} onChange={e => setKeepTransparency(e.target.checked)} /> Keep transparent areas</label><div className="hint">Works best with images that have a clean, simple background.</div></div>}
           <div className="actionbar"><button className="ghost" onClick={reset}>Reset</button><button className="ghost" onClick={() => notify('Preview refreshed.')}>Preview <span>↗</span></button><button className="primary" onClick={download}>Download <span>↓</span></button></div>
         </div>
-        <aside className="preview-column"><div className="preview-head"><div><p className="kicker">LIVE PREVIEW</p><h3>{file ? 'Your file, in focus.' : 'Ready when you are.'}</h3></div><span className="live-dot"><i /> Live</span></div><div className={file ? 'preview-canvas has-file' : 'preview-canvas'}>{file ? (file.file.type.startsWith('image/') ? <img src={file.url} alt="Uploaded preview" /> : <div className="file-preview"><div className="file-glyph">{file.file.name.toLowerCase().endsWith('pdf') ? 'PDF' : 'DOC'}</div><strong>{file.file.name}</strong><span>{prettySize(file.file.size)} · {file.file.type || 'file'}</span></div>) : <div className="empty-preview"><div className="empty-mark">✦</div><strong>Drop a file to preview it</strong><span>Your result will appear here as soon as you add a file.</span></div>}</div><div className="preview-foot"><span>OUTPUT</span><b>{tab === 'background' ? (keepTransparency ? 'PNG' : 'JPEG') : output}</b><span className="quality-pill">{quality}% quality</span></div></aside>
+        <aside className="preview-column"><div className="preview-head"><div><p className="kicker">LIVE PREVIEW</p><h3>{file ? 'Your file, in focus.' : 'Ready when you are.'}</h3></div><span className="live-dot"><i /> Live</span></div><div className={file ? 'preview-canvas has-file' : 'preview-canvas'}>{file ? (file.file.type.startsWith('image/') ? <img src={tab === 'background' && backgroundPreviewUrl ? backgroundPreviewUrl : file.url} alt="Uploaded preview" /> : <div className="file-preview"><div className="file-glyph">{file.file.name.toLowerCase().endsWith('pdf') ? 'PDF' : 'DOC'}</div><strong>{file.file.name}</strong><span>{prettySize(file.file.size)} · {file.file.type || 'file'}</span></div>) : <div className="empty-preview"><div className="empty-mark">✦</div><strong>Drop a file to preview it</strong><span>Your result will appear here as soon as you add a file.</span></div>}</div><div className="preview-foot"><span>OUTPUT</span><b>{tab === 'background' ? (keepTransparency ? 'PNG' : 'JPEG') : output}</b><span className="quality-pill">{quality}% quality</span></div></aside>
       </section>
 
       <section className="trust-row"><span><b>50 MB</b> max file size</span><span><b>30+</b> formats supported</span><span><b>100%</b> in-browser processing</span><span><b>0</b> uploads to servers</span></section>
