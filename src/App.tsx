@@ -132,7 +132,7 @@ function App() {
     let cancelled = false
     if (tab !== 'background' || !file || !file.file.type.startsWith('image/')) { setSegmentedPreviewUrl(''); setSegmentationLoading(false); return }
     setSegmentationLoading(true)
-    removeBackground(file.file, { model: 'isnet_quint8', output: { format: 'image/png' } })
+    removeBackground(file.file, { model: 'isnet', output: { format: 'image/png', quality: 1 } })
       .then(blob => { if (!cancelled) setSegmentedPreviewUrl(URL.createObjectURL(blob)) })
       .catch(() => { if (!cancelled) setSegmentedPreviewUrl(file.url) })
       .finally(() => { if (!cancelled) setSegmentationLoading(false) })
