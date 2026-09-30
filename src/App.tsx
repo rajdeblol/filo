@@ -72,12 +72,25 @@ async function renderDocxToPdf(file: File, filename: string) {
   try {
     await renderAsync(file, mount, mount, { breakPages: true, ignoreWidth: false, ignoreHeight: false, useBase64URL: true, renderHeaders: true, renderFooters: true })
     await new Promise(resolve => window.setTimeout(resolve, 180))
-    const pages = Array.from(mount.querySelectorAll('section.docx, .docx')) as HTMLElement[]
-    const renderedPages = pages.length ? pages : [mount]
+    const wrapper = mount.querySelector('.docx-wrapper') as HTMLElement | null
+    const pageNodes = Array.from(mount.querySelectorAll('section.docx')) as HTMLElement[]
+    const renderedPages = pageNodes.length ? pageNodes : [wrapper || mount]
     const pdf = new jsPDF({ unit: 'pt', format: 'a4', orientation: 'portrait', compress: true })
-    for (let index = 0; index < renderedPages.length; index += 1) {
-      const page = renderedPages[index]
+    const pageCanvases: HTMLCanvasElement[] = []
+    for (const page of renderedPages) {
       const canvas = await html2canvas(page, { scale: 1.75, useCORS: true, backgroundColor: '#ffffff', logging: false })
+      // Some DOCX files render as one tall wrapper. Slice that wrapper at A4 page boundaries.
+      const pageHeight = Math.round(canvas.width * 1.4142)
+      if (canvas.height > pageHeight * 1.25) {
+        for (let y = 0; y < canvas.height; y += pageHeight) {
+          const slice = document.createElement('canvas'); slice.width = canvas.width; slice.height = Math.min(pageHeight, canvas.height - y)
+          slice.getContext('2d')!.drawImage(canvas, 0, y, canvas.width, slice.height, 0, 0, canvas.width, slice.height)
+          pageCanvases.push(slice)
+        }
+      } else pageCanvases.push(canvas)
+    }
+    for (let index = 0; index < pageCanvases.length; index += 1) {
+      const canvas = pageCanvases[index]
       const ratio = Math.min(515 / canvas.width, 742 / canvas.height)
       const width = canvas.width * ratio
       const height = canvas.height * ratio
