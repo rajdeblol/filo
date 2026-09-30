@@ -30,6 +30,16 @@ Then open `http://localhost:5173`.
 npm run build
 ```
 
+## Deploy to Vercel
+
+Import this repository into Vercel. The project is detected as a Vite app automatically.
+
+- Build command: `npm run build`
+- Output directory: `dist`
+- Install command: `npm install`
+
+`vercel.json` includes the SPA rewrite so direct links and browser refreshes continue to work.
+
 ## Tech
 
 React, TypeScript, Vite, jsPDF, docx-preview, html2canvas, and browser Canvas APIs.
